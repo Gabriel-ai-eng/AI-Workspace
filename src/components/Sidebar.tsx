@@ -33,6 +33,17 @@ function AISection() {
 
   const preset = PROVIDER_PRESETS.find((p) => p.id === presetId)!
 
+  // Sugestões renderizadas pelo próprio app (datalist nativo não aparece em
+  // vários navegadores mobile). Some quando o texto já é um ID exato.
+  const modelSuggestions = useMemo(() => {
+    const t = model.trim().toLowerCase()
+    if (!t || !models.length) return []
+    if (models.some((m) => m.id.toLowerCase() === t)) return []
+    return models
+      .filter((m) => m.id.toLowerCase().includes(t) || (m.name ?? '').toLowerCase().includes(t))
+      .slice(0, 8)
+  }, [model, models])
+
   // Com a chave colada, busca o catálogo de modelos do provedor para o usuário
   // escolher pelo nome — evita erros de "model ID inválido".
   useEffect(() => {
@@ -130,23 +141,29 @@ function AISection() {
             />
             <input
               type="text"
-              list="aiw-model-list"
               placeholder={preset.defaultModel ? `Modelo (padrão: ${preset.defaultModel})` : 'Modelo'}
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
-            <datalist id="aiw-model-list">
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name ?? m.id}
-                </option>
-              ))}
-            </datalist>
+            {modelSuggestions.length > 0 && (
+              <div className="suggest-list">
+                {modelSuggestions.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="suggest-item"
+                    onClick={() => setModel(m.id)}
+                  >
+                    <span className="ellipsis">{m.name ?? m.id}</span>
+                    <span className="small dim mono ellipsis">{m.id}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             {loadingModels && <div className="small dim">Carregando modelos disponíveis…</div>}
             {!loadingModels && models.length > 0 && (
               <div className="small dim">
-                {models.length} modelos disponíveis — digite para ver sugestões. Pode digitar o
-                nome ou o ID; o app usa o ID correto automaticamente.
+                {models.length} modelos disponíveis — digite parte do nome e toque na sugestão.
               </div>
             )}
             {error && <div className="error">{error}</div>}

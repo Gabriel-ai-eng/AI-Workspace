@@ -279,6 +279,33 @@ textarea:focus {
   color: var(--text);
 }
 
+/* lista de sugestões de modelos */
+.suggest-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.suggest-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.suggest-item:last-child {
+  border-bottom: none;
+}
+.suggest-item:hover {
+  background: var(--accent-soft);
+}
+
 .btn {
   border: 1px solid var(--border);
   background: var(--bg-3);
