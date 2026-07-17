@@ -45,6 +45,8 @@ export default function Chat() {
     activeConversation,
     appendMessage,
     addProposal,
+    addHistory,
+    autoApply,
   } = app
 
   const [input, setInput] = useState('')
@@ -142,10 +144,12 @@ export default function Chat() {
         github,
         repos: selectedRepos,
         messages: baseMessages,
+        autoApply,
         signal: controller.signal,
         callbacks: {
           onMessage: (msg) => appendMessage(convId, msg),
           onProposal: addProposal,
+          onHistory: addHistory,
           onStatus: setStatus,
         },
       })

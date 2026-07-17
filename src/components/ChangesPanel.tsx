@@ -8,7 +8,7 @@ import type { ChangeProposal } from '../types'
 import DiffView from './DiffView'
 
 export default function ChangesPanel() {
-  const { proposals } = useApp()
+  const { proposals, autoApply } = useApp()
   const pending = proposals.filter((p) => p.status === 'pending')
   const resolved = proposals.filter((p) => p.status !== 'pending').slice(0, 10)
 
@@ -16,8 +16,9 @@ export default function ChangesPanel() {
     return (
       <div className="panel-body">
         <div className="dim small" style={{ textAlign: 'center', marginTop: 24 }}>
-          Quando a IA propuser alterações, elas aparecerão aqui para você revisar o diff e aprovar
-          ou rejeitar. Nada é aplicado sem a sua confirmação.
+          {autoApply
+            ? 'As alterações da IA aparecerão aqui com o diff completo. O modo automático está ligado: elas são aplicadas no GitHub na hora, sem aprovação.'
+            : 'Quando a IA propuser alterações, elas aparecerão aqui para você revisar o diff e aprovar ou rejeitar. Nada é aplicado sem a sua confirmação.'}
         </div>
       </div>
     )

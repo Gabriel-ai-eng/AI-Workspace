@@ -12,6 +12,7 @@ export default function Sidebar() {
       <AISection />
       <GitHubSection />
       <ReposSection />
+      <ExecutionSection />
       <ConversationsSection />
     </aside>
   )
@@ -317,6 +318,33 @@ function ReposSection() {
           )
         })}
         {filtered.length === 0 && <div className="small dim">Nenhum repositório encontrado.</div>}
+      </div>
+    </div>
+  )
+}
+
+// ------------------------------------------------------ execução
+
+function ExecutionSection() {
+  const { autoApply, setAutoApply, githubUser } = useApp()
+  if (!githubUser) return null
+  return (
+    <div className="section">
+      <h3>Execução</h3>
+      <div className="card stack">
+        <label className="row" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={autoApply}
+            onChange={(e) => setAutoApply(e.target.checked)}
+          />
+          <span className="grow">Aplicar alterações automaticamente</span>
+        </label>
+        <div className="small dim">
+          {autoApply
+            ? 'A IA commita direto no repositório (ex.: na main), sem pedir aprovação. Tudo fica registrado nas abas Alterações e Histórico.'
+            : 'Cada alteração fica aguardando sua aprovação na aba Alterações antes de ir ao GitHub.'}
+        </div>
       </div>
     </div>
   )

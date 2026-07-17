@@ -2,7 +2,7 @@
 // ferramenta propose_changes, que apenas ENFILEIRA uma proposta. Nenhuma
 // escrita chega ao GitHub sem o usuário aprovar explicitamente na interface.
 
-import type { ChangeProposal, ChatMessage, FileChange, RepoRef, ToolCall } from '../types'
+import type { ChangeProposal, ChatMessage, FileChange, HistoryEntry, RepoRef, ToolCall } from '../types'
 import { GitHubClient } from './github'
 import { chat, type ChatRequest, type ToolDefinition } from './providers'
 
@@ -59,9 +59,10 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   {
     name: 'propose_changes',
     description:
-      'Propõe um conjunto atômico de alterações (criar/editar/apagar arquivos) como um commit. ' +
-      'Opcionalmente cria uma branch nova e abre um Pull Request. NADA é executado imediatamente: ' +
-      'a proposta fica pendente até o usuário aprovar na interface. Envie o conteúdo COMPLETO de cada arquivo.',
+      'Envia um conjunto atômico de alterações (criar/editar/apagar arquivos) como um commit. ' +
+      'Opcionalmente cria uma branch nova e abre um Pull Request. Dependendo do modo configurado ' +
+      '(descrito no prompt do sistema), a alteração é aplicada imediatamente no GitHub ou fica ' +
+      'pendente até o usuário aprovar. Envie o conteúdo COMPLETO de cada arquivo.',
     parameters: {
       type: 'object',
       properties: {
@@ -92,7 +93,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
 ]
 
-export function buildSystemPrompt(repos: RepoRef[]): string {
+export function buildSystemPrompt(repos: RepoRef[], autoApply: boolean): string {
   const repoList = repos
     .map((r) => `- ${r.fullName} (branch principal: ${r.defaultBranch}, permissão da IA: ${r.permission})`)
     .join('\n')
@@ -105,9 +106,13 @@ export function buildSystemPrompt(repos: RepoRef[]): string {
     'Regras:',
     '1. Antes de alterar qualquer coisa, explore o código com list_files, read_file e search_code para entender o contexto.',
     '2. Explique em linguagem clara o que pretende modificar e por quê, ANTES de chamar propose_changes.',
-    '3. Toda alteração deve ser enviada via propose_changes com o conteúdo COMPLETO de cada arquivo alterado. O usuário verá o diff e decidirá aprovar ou rejeitar — nunca presuma que foi aprovado.',
+    autoApply
+      ? '3. O MODO AUTOMÁTICO está LIGADO: cada chamada de propose_changes é aplicada IMEDIATAMENTE no GitHub (commit direto na branch indicada, ex.: a principal), sem aprovação manual. Envie o conteúdo COMPLETO de cada arquivo alterado e revise com cuidado antes de chamar a ferramenta — o resultado (URL do commit) virá na resposta da ferramenta.'
+      : '3. Toda alteração deve ser enviada via propose_changes com o conteúdo COMPLETO de cada arquivo alterado. O usuário verá o diff e decidirá aprovar ou rejeitar — nunca presuma que foi aprovado.',
     '4. Só proponha alterações em repositórios com permissão "write" ou "admin".',
-    '5. Para mudanças grandes, prefira criar uma branch nova (new_branch) e abrir um PR (pr_title).',
+    autoApply
+      ? '5. Commite direto na branch principal, a menos que o usuário peça uma branch nova ou um PR.'
+      : '5. Para mudanças grandes, prefira criar uma branch nova (new_branch) e abrir um PR (pr_title).',
     '6. Responda sempre no idioma do usuário.',
   ].join('\n')
 }
@@ -115,8 +120,10 @@ export function buildSystemPrompt(repos: RepoRef[]): string {
 export interface AgentCallbacks {
   /** Mensagens novas produzidas durante o turno (assistant/tool). */
   onMessage: (msg: ChatMessage) => void
-  /** Nova proposta de alteração aguardando aprovação. */
+  /** Nova proposta de alteração (pendente ou, no modo automático, já aplicada/falha). */
   onProposal: (proposal: ChangeProposal) => void
+  /** Registro de histórico (usado no modo automático ao aplicar direto). */
+  onHistory: (entry: HistoryEntry) => void
   /** Status curto exibido enquanto o agente trabalha. */
   onStatus: (status: string) => void
 }
@@ -126,13 +133,15 @@ export interface AgentContext {
   github: GitHubClient
   repos: RepoRef[]
   messages: ChatMessage[]
+  /** Se true, propose_changes aplica o commit imediatamente, sem aprovação. */
+  autoApply: boolean
   callbacks: AgentCallbacks
   signal?: AbortSignal
 }
 
 /** Executa um turno completo do agente (pode envolver várias chamadas de ferramenta). */
 export async function runAgentTurn(ctx: AgentContext): Promise<void> {
-  const system = buildSystemPrompt(ctx.repos)
+  const system = buildSystemPrompt(ctx.repos, ctx.autoApply)
   const history: ChatMessage[] = [...ctx.messages]
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -283,6 +292,36 @@ async function proposeChanges(
     status: 'pending',
     createdAt: Date.now(),
   }
+
+  // Modo automático: aplica o commit imediatamente, sem aprovação manual.
+  if (ctx.autoApply) {
+    ctx.callbacks.onStatus(`Aplicando alterações em ${repo.fullName}@${targetBranch}…`)
+    try {
+      const result = await applyProposal(ctx.github, proposal)
+      const url = result.prUrl ?? result.commitUrl
+      proposal.status = 'applied'
+      proposal.resultUrl = url
+      ctx.callbacks.onProposal(proposal)
+      ctx.callbacks.onHistory({
+        id: crypto.randomUUID(),
+        at: Date.now(),
+        repo: repo.fullName,
+        summary: proposal.commitMessage,
+        kind: result.prUrl ? 'pr' : 'commit',
+        url,
+      })
+      return (
+        `Alterações APLICADAS no GitHub (modo automático): ${files.length} arquivo(s) commitados em ` +
+        `${repo.fullName}@${targetBranch}.${result.prUrl ? ` PR aberto: ${result.prUrl}.` : ''} URL: ${url}`
+      )
+    } catch (e) {
+      proposal.status = 'failed'
+      proposal.error = e instanceof Error ? e.message : String(e)
+      ctx.callbacks.onProposal(proposal)
+      return `Falha ao aplicar as alterações: ${proposal.error}`
+    }
+  }
+
   ctx.callbacks.onProposal(proposal)
 
   return (

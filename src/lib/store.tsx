@@ -39,6 +39,8 @@ interface PersistedState {
   theme: 'dark' | 'light'
   connections: AIConnection[]
   activeConnectionId: string | null
+  /** Se true, propostas da IA são aplicadas no GitHub imediatamente, sem aprovação manual. */
+  autoApply: boolean
   selectedRepos: RepoRef[]
   conversations: Conversation[]
   activeConversationId: string | null
@@ -50,6 +52,7 @@ const DEFAULT_STATE: PersistedState = {
   theme: 'dark',
   connections: [],
   activeConnectionId: null,
+  autoApply: true,
   selectedRepos: [],
   conversations: [],
   activeConversationId: null,
@@ -100,6 +103,10 @@ export interface AppStore {
   selectedRepos: RepoRef[]
   toggleRepo: (repo: GhRepo) => void
   setRepoPermission: (fullName: string, permission: RepoRef['permission']) => void
+
+  // modo de execução
+  autoApply: boolean
+  setAutoApply: (v: boolean) => void
 
   // conversas
   conversations: Conversation[]
@@ -322,6 +329,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ],
         }
       }),
+    autoApply: state.autoApply,
+    setAutoApply: (v) => setState((s) => ({ ...s, autoApply: v })),
+
     setRepoPermission: (fullName, permission) =>
       setState((s) => ({
         ...s,
