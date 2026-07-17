@@ -7,6 +7,7 @@ const PBKDF2_ITERATIONS = 310_000
 
 export interface VaultSecrets {
   githubToken?: string
+  vercelToken?: string
   /** connectionId -> API key */
   apiKeys: Record<string, string>
 }

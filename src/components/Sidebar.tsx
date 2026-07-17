@@ -11,6 +11,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <AISection />
       <GitHubSection />
+      <VercelSection />
       <ReposSection />
       <ExecutionSection />
       <ConversationsSection />
@@ -243,6 +244,69 @@ function GitHubSection() {
             com as permissões que você quiser conceder (ex.: repo). Você controla o escopo.
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+// --------------------------------------------------------- Vercel
+
+function VercelSection() {
+  const { vercelUser, secrets, connectVercel, disconnectVercel } = useApp()
+  const [token, setToken] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const connected = !!vercelUser || !!secrets?.vercelToken
+
+  async function connect() {
+    setError('')
+    setBusy(true)
+    try {
+      await connectVercel(token.trim())
+      setToken('')
+      setAdding(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao conectar.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="section">
+      <h3>Vercel</h3>
+      {connected ? (
+        <div className="card row">
+          <span className="grow ellipsis">✓ Conectado{vercelUser ? ` como ${vercelUser}` : ''}</span>
+          <button className="btn ghost small" onClick={() => void disconnectVercel()}>
+            Desconectar
+          </button>
+        </div>
+      ) : adding ? (
+        <div className="card stack">
+          <PasswordInput placeholder="Token de API do Vercel" value={token} onChange={setToken} />
+          {error && <div className="error">{error}</div>}
+          <button
+            className="btn primary"
+            disabled={busy || !token.trim()}
+            onClick={() => void connect()}
+          >
+            {busy ? 'Conectando…' : 'Conectar Vercel'}
+          </button>
+          <div className="small dim">
+            Crie um token em{' '}
+            <a href="https://vercel.com/account/settings/tokens" target="_blank" rel="noreferrer">
+              vercel.com/account/settings/tokens
+            </a>
+            . Com ele, a IA consegue ver seus projetos e deploys (production/preview) e ler logs de
+            build.
+          </div>
+        </div>
+      ) : (
+        <button className="btn ghost" onClick={() => setAdding(true)}>
+          + Conectar Vercel (opcional)
+        </button>
       )}
     </div>
   )

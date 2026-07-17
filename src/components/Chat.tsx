@@ -47,6 +47,7 @@ export default function Chat() {
     addProposal,
     addHistory,
     autoApply,
+    vercel,
   } = app
 
   const [input, setInput] = useState('')
@@ -145,6 +146,7 @@ export default function Chat() {
         repos: selectedRepos,
         messages: baseMessages,
         autoApply,
+        vercel,
         signal: controller.signal,
         callbacks: {
           onMessage: (msg) => appendMessage(convId, msg),
@@ -387,6 +389,14 @@ function toolLabel(name: string): string {
       return 'Listar branches'
     case 'propose_changes':
       return 'Propor alterações'
+    case 'vercel_list_projects':
+      return 'Projetos do Vercel'
+    case 'vercel_list_deployments':
+      return 'Deploys do Vercel'
+    case 'vercel_get_deployment':
+      return 'Detalhes do deploy'
+    case 'vercel_get_build_logs':
+      return 'Logs de build'
     default:
       return name
   }

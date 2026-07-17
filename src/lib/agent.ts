@@ -5,6 +5,7 @@
 import type { ChangeProposal, ChatMessage, FileChange, HistoryEntry, RepoRef, ToolCall } from '../types'
 import { GitHubClient } from './github'
 import { chat, type ChatRequest, type ToolDefinition } from './providers'
+import type { VercelClient, VercelDeploymentInfo } from './vercel'
 
 const MAX_ITERATIONS = 24
 
@@ -93,7 +94,54 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
 ]
 
-export function buildSystemPrompt(repos: RepoRef[], autoApply: boolean): string {
+/** Ferramentas de consulta ao Vercel — disponíveis quando o usuário conecta o token. */
+export const VERCEL_TOOLS: ToolDefinition[] = [
+  {
+    name: 'vercel_list_projects',
+    description: 'Lista os projetos do Vercel do usuário (nome, id e time).',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'vercel_list_deployments',
+    description:
+      'Lista os deploys mais recentes de um projeto do Vercel: estado (BUILDING/READY/ERROR), ' +
+      'alvo (production ou preview), branch e commit de origem, URL e data. ' +
+      'Use para saber se a última alteração já está em produção.',
+    parameters: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Nome ou id do projeto no Vercel' },
+        limit: { type: 'number', description: 'Quantos deploys retornar (padrão 10, máx 25)' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'vercel_get_deployment',
+    description:
+      'Detalhes de um deploy específico do Vercel (estado, alvo, domínios/aliases, commit de origem).',
+    parameters: {
+      type: 'object',
+      properties: {
+        deployment: { type: 'string', description: 'ID (dpl_…) ou URL do deploy' },
+      },
+      required: ['deployment'],
+    },
+  },
+  {
+    name: 'vercel_get_build_logs',
+    description: 'Últimas linhas do log de build de um deploy do Vercel — útil quando o build falha.',
+    parameters: {
+      type: 'object',
+      properties: {
+        deployment: { type: 'string', description: 'ID do deploy (dpl_…)' },
+      },
+      required: ['deployment'],
+    },
+  },
+]
+
+export function buildSystemPrompt(repos: RepoRef[], autoApply: boolean, hasVercel: boolean): string {
   const repoList = repos
     .map((r) => `- ${r.fullName} (branch principal: ${r.defaultBranch}, permissão da IA: ${r.permission})`)
     .join('\n')
@@ -103,6 +151,9 @@ export function buildSystemPrompt(repos: RepoRef[], autoApply: boolean): string 
     'Repositórios que o usuário liberou para esta conversa:',
     repoList || '(nenhum repositório selecionado — avise o usuário para selecionar um na barra lateral)',
     '',
+    hasVercel
+      ? 'O Vercel do usuário está conectado: use vercel_list_projects, vercel_list_deployments, vercel_get_deployment e vercel_get_build_logs para verificar se uma alteração já foi publicada (production) ou está em preview, e para diagnosticar builds que falharam.\n'
+      : '',
     'Regras:',
     '1. Antes de alterar qualquer coisa, explore o código com list_files, read_file e search_code para entender o contexto.',
     '2. Explique em linguagem clara o que pretende modificar e por quê, ANTES de chamar propose_changes.',
@@ -135,13 +186,16 @@ export interface AgentContext {
   messages: ChatMessage[]
   /** Se true, propose_changes aplica o commit imediatamente, sem aprovação. */
   autoApply: boolean
+  /** Cliente do Vercel, quando o usuário conectou o token. */
+  vercel?: VercelClient | null
   callbacks: AgentCallbacks
   signal?: AbortSignal
 }
 
 /** Executa um turno completo do agente (pode envolver várias chamadas de ferramenta). */
 export async function runAgentTurn(ctx: AgentContext): Promise<void> {
-  const system = buildSystemPrompt(ctx.repos, ctx.autoApply)
+  const system = buildSystemPrompt(ctx.repos, ctx.autoApply, !!ctx.vercel)
+  const tools = ctx.vercel ? [...AGENT_TOOLS, ...VERCEL_TOOLS] : AGENT_TOOLS
   const history: ChatMessage[] = [...ctx.messages]
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -150,7 +204,7 @@ export async function runAgentTurn(ctx: AgentContext): Promise<void> {
       ...ctx.request,
       system,
       messages: history,
-      tools: AGENT_TOOLS,
+      tools,
       signal: ctx.signal,
     })
 
@@ -189,6 +243,7 @@ export async function runAgentTurn(ctx: AgentContext): Promise<void> {
 }
 
 function statusFor(call: ToolCall): string {
+  if (call.name.startsWith('vercel_')) return 'Consultando o Vercel…'
   const repo = typeof call.args.repo === 'string' ? call.args.repo : ''
   switch (call.name) {
     case 'list_files':
@@ -207,6 +262,7 @@ function statusFor(call: ToolCall): string {
 }
 
 async function executeTool(ctx: AgentContext, call: ToolCall): Promise<string> {
+  if (call.name.startsWith('vercel_')) return executeVercelTool(ctx, call)
   const args = call.args
   const repoName = String(args.repo ?? '')
   const repo = ctx.repos.find((r) => r.fullName === repoName)
@@ -243,6 +299,63 @@ async function executeTool(ctx: AgentContext, call: ToolCall): Promise<string> {
     default:
       return `Ferramenta desconhecida: ${call.name}`
   }
+}
+
+async function executeVercelTool(ctx: AgentContext, call: ToolCall): Promise<string> {
+  const vercel = ctx.vercel
+  if (!vercel) {
+    return 'O Vercel não está conectado. Peça ao usuário para conectar o token na barra lateral.'
+  }
+  const args = call.args
+  switch (call.name) {
+    case 'vercel_list_projects': {
+      const projects = await vercel.listProjects()
+      if (!projects.length) return 'Nenhum projeto encontrado no Vercel.'
+      return projects
+        .map((p) => `${p.name} (id: ${p.id}${p.teamName ? `, time: ${p.teamName}` : ''})`)
+        .join('\n')
+    }
+    case 'vercel_list_deployments': {
+      const project = await vercel.findProject(String(args.project ?? ''))
+      if (!project) {
+        return `Projeto "${args.project}" não encontrado no Vercel. Use vercel_list_projects para ver os disponíveis.`
+      }
+      const limit = Math.min(Math.max(Number(args.limit ?? 10) || 10, 1), 25)
+      const deps = await vercel.listDeployments(project.id, project.teamId, limit)
+      if (!deps.length) return `Nenhum deploy encontrado no projeto ${project.name}.`
+      return `Deploys de ${project.name} (mais recente primeiro):\n${deps.map(formatDeployment).join('\n')}`
+    }
+    case 'vercel_get_deployment': {
+      const d = await vercel.getDeployment(String(args.deployment ?? ''))
+      const meta = (d.meta ?? {}) as Record<string, string>
+      const aliases = Array.isArray(d.alias) ? (d.alias as string[]).join(', ') : ''
+      return [
+        `id: ${String(d.id ?? d.uid ?? '')}`,
+        `estado: ${String(d.readyState ?? d.state ?? '?')}`,
+        `alvo: ${d.target === 'production' ? 'production' : 'preview'}`,
+        `url: https://${String(d.url ?? '')}`,
+        aliases ? `domínios: ${aliases}` : '',
+        meta.githubCommitRef ? `branch: ${meta.githubCommitRef} @ ${(meta.githubCommitSha ?? '').slice(0, 7)}` : '',
+        meta.githubCommitMessage ? `commit: ${meta.githubCommitMessage.split('\n')[0]}` : '',
+        d.createdAt ? `criado em: ${new Date(Number(d.createdAt)).toISOString()}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+    case 'vercel_get_build_logs': {
+      const logs = await vercel.getBuildLogs(String(args.deployment ?? ''))
+      return logs.length > 20_000 ? `…${logs.slice(-20_000)}` : logs
+    }
+    default:
+      return `Ferramenta desconhecida: ${call.name}`
+  }
+}
+
+function formatDeployment(d: VercelDeploymentInfo): string {
+  const when = d.createdAt ? new Date(d.createdAt).toISOString() : '?'
+  const origin = d.ref ? ` — branch ${d.ref} @ ${(d.sha ?? '').slice(0, 7)}` : ''
+  const msg = d.message ? ` — "${d.message.split('\n')[0]}"` : ''
+  return `[${d.target}] ${d.state}${origin}${msg} — https://${d.url} — ${when} — id ${d.id}`
 }
 
 async function proposeChanges(

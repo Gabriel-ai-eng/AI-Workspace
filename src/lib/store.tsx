@@ -32,6 +32,7 @@ import {
   type VaultSecrets,
 } from './crypto'
 import { GitHubClient, type GhRepo } from './github'
+import { VercelClient } from './vercel'
 
 const STATE_KEY = 'aiw.state.v1'
 
@@ -108,6 +109,12 @@ export interface AppStore {
   autoApply: boolean
   setAutoApply: (v: boolean) => void
 
+  // Vercel
+  vercel: VercelClient | null
+  vercelUser: string | null
+  connectVercel: (token: string) => Promise<void>
+  disconnectVercel: () => Promise<void>
+
   // conversas
   conversations: Conversation[]
   activeConversation: Conversation | null
@@ -135,6 +142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
   const [githubUser, setGithubUser] = useState<string | null>(null)
   const [availableRepos, setAvailableRepos] = useState<GhRepo[]>([])
+  const [vercelUser, setVercelUser] = useState<string | null>(null)
 
   // Login persistente: se há uma sessão salva, destrava o cofre sozinho.
   const restoreRef = useRef(false)
@@ -190,6 +198,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => (secrets?.githubToken ? new GitHubClient(secrets.githubToken) : null),
     [secrets?.githubToken],
   )
+
+  const vercel = useMemo(
+    () => (secrets?.vercelToken ? new VercelClient(secrets.vercelToken) : null),
+    [secrets?.vercelToken],
+  )
+
+  // Valida o token do Vercel salvo e carrega o nome da conta.
+  useEffect(() => {
+    if (!vercel) {
+      setVercelUser(null)
+      return
+    }
+    vercel
+      .getUser()
+      .then((u) => setVercelUser(u.username))
+      .catch(() => setVercelUser(null))
+  }, [vercel])
 
   // Ao destravar com token salvo, valida e carrega repositórios.
   const bootedRef = useRef(false)
@@ -331,6 +356,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }),
     autoApply: state.autoApply,
     setAutoApply: (v) => setState((s) => ({ ...s, autoApply: v })),
+
+    vercel,
+    vercelUser,
+    connectVercel: async (token) => {
+      if (!secrets) return
+      const client = new VercelClient(token)
+      const user = await client.getUser() // valida o token antes de salvar
+      await persistSecrets({ ...secrets, vercelToken: token })
+      setVercelUser(user.username)
+    },
+    disconnectVercel: async () => {
+      if (secrets) await persistSecrets({ ...secrets, vercelToken: undefined })
+      setVercelUser(null)
+    },
 
     setRepoPermission: (fullName, permission) =>
       setState((s) => ({
