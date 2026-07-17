@@ -86,6 +86,65 @@ export interface ToolDefinition {
   parameters: Record<string, unknown>
 }
 
+export interface ModelInfo {
+  id: string
+  name?: string
+}
+
+/** Busca o catálogo de modelos do provedor (GET /models). */
+export async function listModels(
+  kind: 'anthropic' | 'openai',
+  baseUrl: string,
+  apiKey: string,
+): Promise<ModelInfo[]> {
+  if (kind === 'anthropic') {
+    const res = await fetch(`${baseUrl}/v1/models?limit=1000`, {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    })
+    if (!res.ok) throw new Error(await apiError(res))
+    const data = (await res.json()) as { data: { id: string; display_name?: string }[] }
+    return data.data.map((m) => ({ id: m.id, name: m.display_name }))
+  }
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  })
+  if (!res.ok) throw new Error(await apiError(res))
+  const data = (await res.json()) as { data: { id: string; name?: string }[] }
+  return (data.data ?? []).map((m) => ({ id: m.id, name: m.name }))
+}
+
+/**
+ * Converte o que o usuário digitou no ID real do modelo: aceita o próprio ID,
+ * o nome de exibição (ex.: "Qwen3 Coder 480B A35B (free)") ou um trecho único.
+ * Retorna null se o catálogo foi carregado e nada corresponde.
+ */
+export function resolveModelId(input: string, models: ModelInfo[]): string | null {
+  const t = input.trim()
+  if (!t) return null
+  if (!models.length) return t // sem catálogo (ex.: API customizada) — usa como digitado
+  const lower = t.toLowerCase()
+  const exactId = models.find((m) => m.id.toLowerCase() === lower)
+  if (exactId) return exactId.id
+  const exactName = models.find((m) => (m.name ?? '').toLowerCase() === lower)
+  if (exactName) return exactName.id
+  const contains = models.filter(
+    (m) => m.id.toLowerCase().includes(lower) || (m.name ?? '').toLowerCase().includes(lower),
+  )
+  if (contains.length >= 1) {
+    // Prefere a variante gratuita se o usuário escreveu "free"; senão, a primeira.
+    if (lower.includes('free')) {
+      const free = contains.find((m) => m.id.endsWith(':free'))
+      if (free) return free.id
+    }
+    return contains[0].id
+  }
+  return null
+}
+
 export interface ChatResult {
   text: string
   toolCalls: ToolCall[]

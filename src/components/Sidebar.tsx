@@ -1,7 +1,7 @@
 // Barra lateral: conexões de IA, conta do GitHub, repositórios e conversas.
 
-import { useMemo, useState } from 'react'
-import { PROVIDER_PRESETS } from '../lib/providers'
+import { useEffect, useMemo, useState } from 'react'
+import { PROVIDER_PRESETS, listModels, resolveModelId, type ModelInfo } from '../lib/providers'
 import { useApp } from '../lib/store'
 import type { AIConnection } from '../types'
 import PasswordInput from './PasswordInput'
@@ -28,16 +28,41 @@ function AISection() {
   const [model, setModel] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [error, setError] = useState('')
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
 
   const preset = PROVIDER_PRESETS.find((p) => p.id === presetId)!
+
+  // Com a chave colada, busca o catálogo de modelos do provedor para o usuário
+  // escolher pelo nome — evita erros de "model ID inválido".
+  useEffect(() => {
+    setModels([])
+    const key = apiKey.trim()
+    const base = presetId === 'custom' ? baseUrl.trim().replace(/\/$/, '') : preset.baseUrl
+    if (!key || key.length < 8 || !base) return
+    const timer = setTimeout(() => {
+      setLoadingModels(true)
+      listModels(preset.kind, base, key)
+        .then(setModels)
+        .catch(() => setModels([]))
+        .finally(() => setLoadingModels(false))
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [apiKey, presetId, baseUrl, preset.kind, preset.baseUrl])
 
   async function save() {
     setError('')
     if (!apiKey.trim()) return setError('Cole a chave de API.')
     const finalBase = presetId === 'custom' ? baseUrl.trim().replace(/\/$/, '') : preset.baseUrl
     if (!finalBase) return setError('Informe a URL base da API.')
-    const finalModel = model.trim() || preset.defaultModel
-    if (!finalModel) return setError('Informe o modelo.')
+    const typed = model.trim() || preset.defaultModel
+    if (!typed) return setError('Informe o modelo.')
+    const finalModel = resolveModelId(typed, models)
+    if (!finalModel) {
+      return setError(
+        `"${typed}" não existe no catálogo deste provedor. Comece a digitar no campo de modelo e escolha uma das sugestões.`,
+      )
+    }
     const conn: AIConnection = {
       id: crypto.randomUUID(),
       presetId,
@@ -105,10 +130,25 @@ function AISection() {
             />
             <input
               type="text"
+              list="aiw-model-list"
               placeholder={preset.defaultModel ? `Modelo (padrão: ${preset.defaultModel})` : 'Modelo'}
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
+            <datalist id="aiw-model-list">
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name ?? m.id}
+                </option>
+              ))}
+            </datalist>
+            {loadingModels && <div className="small dim">Carregando modelos disponíveis…</div>}
+            {!loadingModels && models.length > 0 && (
+              <div className="small dim">
+                {models.length} modelos disponíveis — digite para ver sugestões. Pode digitar o
+                nome ou o ID; o app usa o ID correto automaticamente.
+              </div>
+            )}
             {error && <div className="error">{error}</div>}
             <div className="row">
               <button className="btn primary grow" onClick={() => void save()}>
