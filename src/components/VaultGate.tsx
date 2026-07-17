@@ -55,9 +55,23 @@ export default function VaultGate() {
             ? 'Crie uma senha para o cofre local. Suas chaves de API e o token do GitHub serão criptografados (AES-256) e guardados apenas neste dispositivo. Você continuará conectado até usar o botão Sair.'
             : 'Digite a senha do cofre para destravar suas chaves. Você continuará conectado neste dispositivo até usar o botão Sair.'}
         </p>
-        <PasswordInput placeholder="Senha do cofre" value={pass} onChange={setPass} autoFocus />
+        {/* Único lugar onde o navegador deve salvar/preencher a senha do cofre. */}
+        <PasswordInput
+          placeholder="Senha do cofre"
+          value={pass}
+          onChange={setPass}
+          autoFocus
+          name="password"
+          autoComplete={isNew ? 'new-password' : 'current-password'}
+        />
         {isNew && (
-          <PasswordInput placeholder="Confirmar senha" value={confirm} onChange={setConfirm} />
+          <PasswordInput
+            placeholder="Confirmar senha"
+            value={confirm}
+            onChange={setConfirm}
+            name="confirm-password"
+            autoComplete="new-password"
+          />
         )}
         {error && <div className="error">{error}</div>}
         <button className="btn primary" disabled={busy || !pass}>

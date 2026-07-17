@@ -140,6 +140,7 @@ function AISection() {
               placeholder={`Chave de API (${preset.keyHint})`}
               value={apiKey}
               onChange={setApiKey}
+              name="ai-api-key"
             />
             <input
               type="text"
@@ -231,6 +232,7 @@ function GitHubSection() {
             placeholder="Personal Access Token (ghp_… ou github_pat_…)"
             value={token}
             onChange={setToken}
+            name="github-token"
           />
           {error && <div className="error">{error}</div>}
           <button className="btn primary" disabled={busy || !token.trim()} onClick={() => void connect()}>
@@ -285,7 +287,12 @@ function VercelSection() {
         </div>
       ) : adding ? (
         <div className="card stack">
-          <PasswordInput placeholder="Token de API do Vercel" value={token} onChange={setToken} />
+          <PasswordInput
+            placeholder="Token de API do Vercel"
+            value={token}
+            onChange={setToken}
+            name="vercel-token"
+          />
           {error && <div className="error">{error}</div>}
           <button
             className="btn primary"

@@ -7,9 +7,25 @@ interface Props {
   onChange: (value: string) => void
   placeholder?: string
   autoFocus?: boolean
+  /** Nome do campo para o gerenciador de senhas do navegador. */
+  name?: string
+  /**
+   * Papel do campo para o preenchimento automático. Use 'current-password' /
+   * 'new-password' APENAS na tela de login do cofre. Campos de chave de API e
+   * tokens usam o padrão 'off' + 'new-password' para o navegador NÃO preencher
+   * a senha do cofre neles.
+   */
+  autoComplete?: string
 }
 
-export default function PasswordInput({ value, onChange, placeholder, autoFocus }: Props) {
+export default function PasswordInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+  name,
+  autoComplete = 'new-password',
+}: Props) {
   const [show, setShow] = useState(false)
   return (
     <div className="pwd">
@@ -18,6 +34,8 @@ export default function PasswordInput({ value, onChange, placeholder, autoFocus 
         placeholder={placeholder}
         value={value}
         autoFocus={autoFocus}
+        name={name}
+        autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
       />
       <button
