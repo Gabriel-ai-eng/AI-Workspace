@@ -15,7 +15,7 @@ type PanelTab = 'changes' | 'files' | 'history'
 type MobileView = 'config' | 'chat' | 'panel'
 
 export default function App() {
-  const { vaultStatus, theme, toggleTheme, proposals } = useApp()
+  const { vaultStatus, theme, toggleTheme, proposals, signOut } = useApp()
   const [tab, setTab] = useState<PanelTab>('changes')
   const [view, setView] = useState<MobileView>('chat')
 
@@ -52,10 +52,13 @@ export default function App() {
         </button>
         <button
           className="btn icon ghost"
-          title="Travar cofre (recarrega o app)"
-          onClick={() => window.location.reload()}
+          title="Sair — encerra a sessão e volta à tela de login"
+          onClick={() => {
+            if (window.confirm('Sair? Você precisará digitar a senha do cofre para entrar de novo.'))
+              signOut()
+          }}
         >
-          🔒
+          ⏻
         </button>
       </header>
 

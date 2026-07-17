@@ -12,6 +12,22 @@ export default function VaultGate() {
   const [busy, setBusy] = useState(false)
   const isNew = vaultStatus === 'new'
 
+  // Sessão salva encontrada: o cofre está sendo destravado automaticamente.
+  if (vaultStatus === 'restoring') {
+    return (
+      <div className="gate">
+        <div className="box">
+          <h1>
+            <img src="/icon.svg" alt="" /> AI Workspace
+          </h1>
+          <p className="dim small">
+            <span className="pulse">●</span> Entrando automaticamente…
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError('')
@@ -36,8 +52,8 @@ export default function VaultGate() {
         </h1>
         <p className="dim small">
           {isNew
-            ? 'Crie uma senha para o cofre local. Suas chaves de API e o token do GitHub serão criptografados (AES-256) e guardados apenas neste dispositivo.'
-            : 'Digite a senha do cofre para destravar suas chaves.'}
+            ? 'Crie uma senha para o cofre local. Suas chaves de API e o token do GitHub serão criptografados (AES-256) e guardados apenas neste dispositivo. Você continuará conectado até usar o botão Sair.'
+            : 'Digite a senha do cofre para destravar suas chaves. Você continuará conectado neste dispositivo até usar o botão Sair.'}
         </p>
         <PasswordInput placeholder="Senha do cofre" value={pass} onChange={setPass} autoFocus />
         {isNew && (

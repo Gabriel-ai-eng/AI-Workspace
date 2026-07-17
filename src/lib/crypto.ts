@@ -85,3 +85,60 @@ export async function openVault(passphrase: string): Promise<VaultSecrets | null
 export function deleteVault(): void {
   localStorage.removeItem(VAULT_KEY)
 }
+
+// ------------------------------------------------------------------- sessão
+// "Manter conectado": guarda a senha do cofre cifrada com uma chave aleatória
+// do próprio dispositivo, para destravar automaticamente nas próximas visitas.
+// Não protege contra quem tem acesso total ao navegador — é uma conveniência,
+// revogada ao clicar em Sair (clearSession).
+
+const SESSION_KEY = 'aiw.session.v1'
+
+interface SessionFile {
+  key: string
+  iv: string
+  data: string
+}
+
+export function sessionExists(): boolean {
+  return localStorage.getItem(SESSION_KEY) !== null
+}
+
+export async function saveSession(passphrase: string): Promise<void> {
+  const rawKey = crypto.getRandomValues(new Uint8Array(32))
+  const key = await crypto.subtle.importKey('raw', rawKey as BufferSource, 'AES-GCM', false, [
+    'encrypt',
+  ])
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    key,
+    enc.encode(passphrase),
+  )
+  const file: SessionFile = { key: toB64(rawKey), iv: toB64(iv), data: toB64(data) }
+  localStorage.setItem(SESSION_KEY, JSON.stringify(file))
+}
+
+/** Retorna a senha salva na sessão, ou null se não houver/estiver corrompida. */
+export async function loadSession(): Promise<string | null> {
+  const raw = localStorage.getItem(SESSION_KEY)
+  if (!raw) return null
+  try {
+    const file = JSON.parse(raw) as SessionFile
+    const key = await crypto.subtle.importKey('raw', fromB64(file.key) as BufferSource, 'AES-GCM', false, [
+      'decrypt',
+    ])
+    const plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromB64(file.iv) as BufferSource },
+      key,
+      fromB64(file.data) as BufferSource,
+    )
+    return dec.decode(plain)
+  } catch {
+    return null
+  }
+}
+
+export function clearSession(): void {
+  localStorage.removeItem(SESSION_KEY)
+}

@@ -20,7 +20,17 @@ import type {
   HistoryEntry,
   RepoRef,
 } from '../types'
-import { openVault, saveVault, vaultExists, deleteVault, type VaultSecrets } from './crypto'
+import {
+  clearSession,
+  deleteVault,
+  loadSession,
+  openVault,
+  saveSession,
+  saveVault,
+  sessionExists,
+  vaultExists,
+  type VaultSecrets,
+} from './crypto'
 import { GitHubClient, type GhRepo } from './github'
 
 const STATE_KEY = 'aiw.state.v1'
@@ -57,7 +67,7 @@ function loadState(): PersistedState {
   }
 }
 
-export type VaultStatus = 'new' | 'locked' | 'unlocked'
+export type VaultStatus = 'new' | 'restoring' | 'locked' | 'unlocked'
 
 export interface AppStore {
   // tema
@@ -69,6 +79,8 @@ export interface AppStore {
   unlockVault: (passphrase: string) => Promise<boolean>
   createVault: (passphrase: string) => Promise<void>
   resetVault: () => void
+  /** Encerra a sessão salva e volta para a tela de login (o cofre continua existindo). */
+  signOut: () => void
   secrets: VaultSecrets | null
 
   // conexões de IA
@@ -112,10 +124,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [secrets, setSecrets] = useState<VaultSecrets | null>(null)
   const [passphrase, setPassphrase] = useState<string>('')
   const [vaultStatus, setVaultStatus] = useState<VaultStatus>(() =>
-    vaultExists() ? 'locked' : 'new',
+    vaultExists() ? (sessionExists() ? 'restoring' : 'locked') : 'new',
   )
   const [githubUser, setGithubUser] = useState<string | null>(null)
   const [availableRepos, setAvailableRepos] = useState<GhRepo[]>([])
+
+  // Login persistente: se há uma sessão salva, destrava o cofre sozinho.
+  const restoreRef = useRef(false)
+  useEffect(() => {
+    if (vaultStatus !== 'restoring' || restoreRef.current) return
+    restoreRef.current = true
+    void (async () => {
+      const pass = await loadSession()
+      const opened = pass ? await openVault(pass) : null
+      if (pass && opened) {
+        setPassphrase(pass)
+        setSecrets(opened)
+        setVaultStatus('unlocked')
+      } else {
+        // Sessão inválida (ex.: senha do cofre mudou) — pede login normal.
+        clearSession()
+        setVaultStatus('locked')
+      }
+    })()
+  }, [vaultStatus])
 
   // Persiste estado não sensível a cada mudança.
   useEffect(() => {
@@ -185,6 +217,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     secrets,
     createVault: async (pass) => {
       await saveVault(pass, { apiKeys: {} })
+      await saveSession(pass)
       setPassphrase(pass)
       setSecrets({ apiKeys: {} })
       setVaultStatus('unlocked')
@@ -192,13 +225,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     unlockVault: async (pass) => {
       const opened = await openVault(pass)
       if (!opened) return false
+      await saveSession(pass)
       setPassphrase(pass)
       setSecrets(opened)
       setVaultStatus('unlocked')
       return true
     },
+    signOut: () => {
+      clearSession()
+      setSecrets(null)
+      setPassphrase('')
+      setVaultStatus('locked')
+      setGithubUser(null)
+      setAvailableRepos([])
+      bootedRef.current = false
+      restoreRef.current = false
+    },
     resetVault: () => {
       deleteVault()
+      clearSession()
       localStorage.removeItem(STATE_KEY)
       setSecrets(null)
       setPassphrase('')
