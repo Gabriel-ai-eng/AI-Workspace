@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { PROVIDER_PRESETS } from '../lib/providers'
 import { useApp } from '../lib/store'
 import type { AIConnection } from '../types'
+import PasswordInput from './PasswordInput'
 
 export default function Sidebar() {
   return (
@@ -97,11 +98,10 @@ function AISection() {
                 onChange={(e) => setBaseUrl(e.target.value)}
               />
             )}
-            <input
-              type="password"
+            <PasswordInput
               placeholder={`Chave de API (${preset.keyHint})`}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={setApiKey}
             />
             <input
               type="text"
@@ -168,11 +168,10 @@ function GitHubSection() {
         </div>
       ) : (
         <div className="card stack">
-          <input
-            type="password"
+          <PasswordInput
             placeholder="Personal Access Token (ghp_… ou github_pat_…)"
             value={token}
-            onChange={(e) => setToken(e.target.value)}
+            onChange={setToken}
           />
           {error && <div className="error">{error}</div>}
           <button className="btn primary" disabled={busy || !token.trim()} onClick={() => void connect()}>

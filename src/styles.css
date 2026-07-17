@@ -254,6 +254,31 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+/* campo de senha com olho */
+.pwd {
+  position: relative;
+}
+.pwd input {
+  padding-right: 38px;
+}
+.pwd-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.pwd-toggle:hover {
+  color: var(--text);
+}
+
 .btn {
   border: 1px solid var(--border);
   background: var(--bg-3);

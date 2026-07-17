@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { useApp } from '../lib/store'
+import PasswordInput from './PasswordInput'
 
 export default function VaultGate() {
   const { vaultStatus, createVault, unlockVault, resetVault } = useApp()
@@ -38,20 +39,9 @@ export default function VaultGate() {
             ? 'Crie uma senha para o cofre local. Suas chaves de API e o token do GitHub serão criptografados (AES-256) e guardados apenas neste dispositivo.'
             : 'Digite a senha do cofre para destravar suas chaves.'}
         </p>
-        <input
-          type="password"
-          placeholder="Senha do cofre"
-          value={pass}
-          onChange={(e) => setPass(e.target.value)}
-          autoFocus
-        />
+        <PasswordInput placeholder="Senha do cofre" value={pass} onChange={setPass} autoFocus />
         {isNew && (
-          <input
-            type="password"
-            placeholder="Confirmar senha"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
+          <PasswordInput placeholder="Confirmar senha" value={confirm} onChange={setConfirm} />
         )}
         {error && <div className="error">{error}</div>}
         <button className="btn primary" disabled={busy || !pass}>
