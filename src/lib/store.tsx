@@ -119,7 +119,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Persiste estado não sensível a cada mudança.
   useEffect(() => {
-    localStorage.setItem(STATE_KEY, JSON.stringify(state))
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify(state))
+    } catch {
+      // Cota do localStorage excedida (anexos grandes): persiste sem os dados
+      // binários dos anexos para não perder o restante do estado.
+      try {
+        const slim: PersistedState = {
+          ...state,
+          conversations: state.conversations.map((c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.role === 'user' && m.attachments?.length
+                ? { ...m, attachments: m.attachments.map((a) => ({ ...a, dataUrl: '' })) }
+                : m,
+            ),
+          })),
+        }
+        localStorage.setItem(STATE_KEY, JSON.stringify(slim))
+      } catch {
+        // Sem espaço mesmo assim — o estado segue apenas em memória.
+      }
+    }
   }, [state])
 
   useEffect(() => {
@@ -296,7 +317,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (c.id !== conversationId) return c
           const title =
             c.messages.length === 0 && msg.role === 'user'
-              ? msg.content.slice(0, 48)
+              ? (msg.content || (msg.attachments?.[0] ? `📎 ${msg.attachments[0].name}` : c.title)).slice(0, 48)
               : c.title
           return { ...c, title, messages: [...c.messages, msg] }
         }),

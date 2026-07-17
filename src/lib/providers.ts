@@ -3,7 +3,7 @@
 //  - 'openai': qualquer endpoint compatível com Chat Completions da OpenAI
 //    (OpenAI, Gemini, Grok, DeepSeek, OpenRouter, Mistral, APIs customizadas).
 
-import type { ChatMessage, ProviderPreset, ToolCall } from '../types'
+import type { Attachment, ChatMessage, ProviderPreset, ToolCall } from '../types'
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
@@ -170,6 +170,8 @@ export async function chat(req: ChatRequest): Promise<ChatResult> {
 async function chatAnthropic(req: ChatRequest): Promise<ChatResult> {
   type Block =
     | { type: 'text'; text: string }
+    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+    | { type: 'document'; source: { type: 'base64'; media_type: string; data: string } }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_result'; tool_use_id: string; content: string }
 
@@ -177,7 +179,32 @@ async function chatAnthropic(req: ChatRequest): Promise<ChatResult> {
   for (const m of req.messages) {
     if (m.role === 'system') continue
     if (m.role === 'user') {
-      messages.push({ role: 'user', content: m.content })
+      if (m.attachments?.length) {
+        const blocks: Block[] = []
+        for (const a of m.attachments) {
+          if (!a.dataUrl) {
+            blocks.push({ type: 'text', text: attachmentUnavailableNote(a) })
+          } else if (a.kind === 'image' && ANTHROPIC_IMAGE_TYPES.has(a.mimeType)) {
+            blocks.push({
+              type: 'image',
+              source: { type: 'base64', media_type: a.mimeType, data: dataUrlBase64(a.dataUrl) },
+            })
+          } else if (a.mimeType === 'application/pdf') {
+            blocks.push({
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: dataUrlBase64(a.dataUrl) },
+            })
+          } else if (isTextAttachment(a)) {
+            blocks.push({ type: 'text', text: textAttachmentBlock(a) })
+          } else {
+            blocks.push({ type: 'text', text: attachmentNote(a) })
+          }
+        }
+        if (m.content) blocks.push({ type: 'text', text: m.content })
+        messages.push({ role: 'user', content: blocks })
+      } else {
+        messages.push({ role: 'user', content: m.content })
+      }
     } else if (m.role === 'assistant') {
       const blocks: Block[] = []
       if (m.content) blocks.push({ type: 'text', text: m.content })
@@ -235,8 +262,12 @@ async function chatAnthropic(req: ChatRequest): Promise<ChatResult> {
 // ------------------------------------------------- OpenAI Chat Completions
 
 async function chatOpenAI(req: ChatRequest): Promise<ChatResult> {
+  type OaPart =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } }
   type OaMsg =
-    | { role: 'system' | 'user'; content: string }
+    | { role: 'system'; content: string }
+    | { role: 'user'; content: string | OaPart[] }
     | {
         role: 'assistant'
         content: string | null
@@ -248,7 +279,24 @@ async function chatOpenAI(req: ChatRequest): Promise<ChatResult> {
   for (const m of req.messages) {
     if (m.role === 'system') continue
     if (m.role === 'user') {
-      messages.push({ role: 'user', content: m.content })
+      if (m.attachments?.length) {
+        const parts: OaPart[] = []
+        for (const a of m.attachments) {
+          if (!a.dataUrl) {
+            parts.push({ type: 'text', text: attachmentUnavailableNote(a) })
+          } else if (a.kind === 'image') {
+            parts.push({ type: 'image_url', image_url: { url: a.dataUrl } })
+          } else if (isTextAttachment(a)) {
+            parts.push({ type: 'text', text: textAttachmentBlock(a) })
+          } else {
+            parts.push({ type: 'text', text: attachmentNote(a) })
+          }
+        }
+        if (m.content) parts.push({ type: 'text', text: m.content })
+        messages.push({ role: 'user', content: parts })
+      } else {
+        messages.push({ role: 'user', content: m.content })
+      }
     } else if (m.role === 'assistant') {
       messages.push({
         role: 'assistant',
@@ -299,6 +347,70 @@ async function chatOpenAI(req: ChatRequest): Promise<ChatResult> {
     args: safeParseJson(tc.function.arguments),
   }))
   return { text: msg?.content ?? '', toolCalls }
+}
+
+// ------------------------------------------------------------------ anexos
+
+/** Tipos de imagem aceitos pela API Messages da Anthropic. */
+const ANTHROPIC_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+
+const TEXT_MIME_SET = new Set([
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+  'application/x-sh',
+  'application/x-yaml',
+  'application/yaml',
+  'image/svg+xml',
+])
+
+const TEXT_EXTENSIONS =
+  /\.(txt|md|markdown|json|jsonc|xml|yml|yaml|csv|tsv|ts|tsx|js|jsx|mjs|cjs|css|scss|html|htm|svg|py|rb|go|rs|java|kt|c|h|cpp|hpp|cs|php|swift|sql|sh|bash|toml|ini|cfg|conf|env|log|gitignore|dockerfile)$/i
+
+function dataUrlBase64(dataUrl: string): string {
+  return dataUrl.slice(dataUrl.indexOf(',') + 1)
+}
+
+function isTextAttachment(a: Attachment): boolean {
+  return (
+    a.mimeType.startsWith('text/') || TEXT_MIME_SET.has(a.mimeType) || TEXT_EXTENSIONS.test(a.name)
+  )
+}
+
+function decodeTextAttachment(a: Attachment): string {
+  try {
+    const bin = atob(dataUrlBase64(a.dataUrl))
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
+    return new TextDecoder().decode(bytes)
+  } catch {
+    return '(não foi possível decodificar o conteúdo do arquivo)'
+  }
+}
+
+function textAttachmentBlock(a: Attachment): string {
+  const text = decodeTextAttachment(a)
+  const truncated =
+    text.length > 60_000 ? `${text.slice(0, 60_000)}\n… (arquivo truncado)` : text
+  return `Conteúdo do arquivo anexado "${a.name}" (${a.mimeType || 'texto'}):\n\n${truncated}`
+}
+
+function attachmentNote(a: Attachment): string {
+  return (
+    `[O usuário anexou "${a.name}" (${a.mimeType || 'tipo desconhecido'}, ${formatBytes(a.size)}), ` +
+    'mas este tipo de anexo não pode ser enviado à API deste provedor. ' +
+    'Se o conteúdo for necessário, peça ao usuário em outro formato.]'
+  )
+}
+
+function attachmentUnavailableNote(a: Attachment): string {
+  return `[Anexo "${a.name}" não está mais disponível neste dispositivo.]`
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function safeParseJson(s: string): Record<string, unknown> {

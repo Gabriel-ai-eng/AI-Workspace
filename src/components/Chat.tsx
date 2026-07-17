@@ -3,8 +3,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { runAgentTurn } from '../lib/agent'
+import { formatBytes } from '../lib/providers'
 import { useApp } from '../lib/store'
-import type { ChatMessage } from '../types'
+import type { Attachment, ChatMessage } from '../types'
 
 const SUGGESTIONS = [
   'Analise este projeto e me explique a arquitetura',
@@ -13,6 +14,22 @@ const SUGGESTIONS = [
   'Refatore o código para melhorar a legibilidade',
   'Crie uma branch nova e implemente testes',
 ]
+
+/** Limites por anexo. Acima disso o navegador (e o provedor) sofrem. */
+const MAX_ATTACHMENT_SIZE: Record<Attachment['kind'], number> = {
+  image: 5 * 1024 * 1024,
+  video: 20 * 1024 * 1024,
+  file: 10 * 1024 * 1024,
+}
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
 
 export default function Chat() {
   const app = useApp()
@@ -33,7 +50,11 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [status, setStatus] = useState('')
   const [running, setRunning] = useState(false)
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [attachError, setAttachError] = useState('')
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const conversation = activeConversation ?? conversations[0] ?? null
@@ -44,20 +65,68 @@ export default function Chat() {
 
   const ready = !!activeConnection && !!secrets && !!github && selectedRepos.length > 0
 
+  /** Abre o seletor de arquivos com o filtro da opção escolhida no menu. */
+  function pickFiles(accept: string) {
+    setAttachMenuOpen(false)
+    const el = fileInputRef.current
+    if (!el) return
+    if (accept) el.setAttribute('accept', accept)
+    else el.removeAttribute('accept')
+    el.value = ''
+    el.click()
+  }
+
+  async function onFilesPicked(list: FileList | null) {
+    if (!list?.length) return
+    setAttachError('')
+    const added: Attachment[] = []
+    const errors: string[] = []
+    for (const file of Array.from(list)) {
+      const kind: Attachment['kind'] = file.type.startsWith('image/')
+        ? 'image'
+        : file.type.startsWith('video/')
+          ? 'video'
+          : 'file'
+      if (file.size > MAX_ATTACHMENT_SIZE[kind]) {
+        errors.push(`${file.name} excede o limite de ${formatBytes(MAX_ATTACHMENT_SIZE[kind])}`)
+        continue
+      }
+      try {
+        added.push({
+          id: crypto.randomUUID(),
+          kind,
+          name: file.name,
+          mimeType: file.type,
+          size: file.size,
+          dataUrl: await readAsDataUrl(file),
+        })
+      } catch {
+        errors.push(`Não foi possível ler ${file.name}`)
+      }
+    }
+    if (added.length) setAttachments((prev) => [...prev, ...added])
+    if (errors.length) setAttachError(errors.join(' · '))
+  }
+
   async function send(text?: string) {
     const content = (text ?? input).trim()
-    if (!content || running) return
+    const attached = attachments
+    if ((!content && !attached.length) || running) return
     if (!activeConnection || !secrets || !github) return
     const apiKey = secrets.apiKeys[activeConnection.id]
     if (!apiKey) return
 
     setInput('')
+    setAttachments([])
+    setAttachError('')
     setRunning(true)
     const controller = new AbortController()
     abortRef.current = controller
 
     const convId = conversation?.id ?? app.newConversation()
-    const userMsg: ChatMessage = { role: 'user', content }
+    const userMsg: ChatMessage = attached.length
+      ? { role: 'user', content, attachments: attached }
+      : { role: 'user', content }
     appendMessage(convId, userMsg)
 
     const baseMessages = [...(conversation?.messages ?? []), userMsg]
@@ -156,31 +225,87 @@ export default function Chat() {
       )}
 
       <div className="chat-input">
-        <textarea
-          className="grow"
-          rows={1}
-          placeholder={
-            ready ? 'Ex.: "Crie um sistema de login" ou "Corrija os bugs deste projeto"' : 'Complete a configuração na barra lateral…'
-          }
-          value={input}
-          disabled={!ready || running}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-        />
-        {running ? (
-          <button className="btn reject" onClick={() => abortRef.current?.abort()}>
-            Parar
-          </button>
-        ) : (
-          <button className="btn primary" disabled={!ready || !input.trim()} onClick={() => void send()}>
-            Enviar
-          </button>
+        {attachError && <div className="error small">{attachError}</div>}
+        {attachments.length > 0 && (
+          <div className="attach-chips">
+            {attachments.map((a) => (
+              <span key={a.id} className="chip" title={a.name}>
+                {a.kind === 'image' ? (
+                  <img src={a.dataUrl} alt="" />
+                ) : (
+                  <span>{a.kind === 'video' ? '🎬' : '📎'}</span>
+                )}
+                <span className="ellipsis">{a.name}</span>
+                <span className="dim">{formatBytes(a.size)}</span>
+                <button
+                  className="x"
+                  title="Remover anexo"
+                  onClick={() => setAttachments((prev) => prev.filter((p) => p.id !== a.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
         )}
+        <div className="chat-input-row">
+          <div className="attach">
+            <button
+              className="btn icon"
+              disabled={!ready || running}
+              title="Anexar imagens, vídeos ou arquivos"
+              onClick={() => setAttachMenuOpen((v) => !v)}
+            >
+              ＋
+            </button>
+            {attachMenuOpen && (
+              <>
+                <div className="attach-backdrop" onClick={() => setAttachMenuOpen(false)} />
+                <div className="attach-menu">
+                  <button onClick={() => pickFiles('image/*')}>🖼️ Imagens</button>
+                  <button onClick={() => pickFiles('video/*')}>🎬 Vídeos</button>
+                  <button onClick={() => pickFiles('')}>📎 Arquivos</button>
+                </div>
+              </>
+            )}
+          </div>
+          <textarea
+            className="grow"
+            rows={1}
+            placeholder={
+              ready ? 'Ex.: "Crie um sistema de login" ou "Corrija os bugs deste projeto"' : 'Complete a configuração na barra lateral…'
+            }
+            value={input}
+            disabled={!ready || running}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+          />
+          {running ? (
+            <button className="btn reject" onClick={() => abortRef.current?.abort()}>
+              Parar
+            </button>
+          ) : (
+            <button
+              className="btn primary"
+              disabled={!ready || (!input.trim() && !attachments.length)}
+              onClick={() => void send()}
+            >
+              Enviar
+            </button>
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => void onFilesPicked(e.target.files)}
+        />
       </div>
     </section>
   )
@@ -206,7 +331,44 @@ function Message({ msg }: { msg: ChatMessage }) {
     if (!msg.content) return null
     return <div className="msg assistant">{msg.content}</div>
   }
-  return <div className="msg user">{msg.content}</div>
+  return (
+    <div className="msg user">
+      {msg.attachments && msg.attachments.length > 0 && (
+        <div className="msg-attachments">
+          {msg.attachments.map((a) => (
+            <AttachmentView key={a.id} a={a} />
+          ))}
+        </div>
+      )}
+      {msg.content}
+    </div>
+  )
+}
+
+function AttachmentView({ a }: { a: Attachment }) {
+  if (!a.dataUrl) {
+    return (
+      <span className="file-chip dim" title="Os dados deste anexo foram descartados para liberar espaço">
+        📎 {a.name} (indisponível)
+      </span>
+    )
+  }
+  if (a.kind === 'image') {
+    return (
+      <a href={a.dataUrl} download={a.name} title={a.name}>
+        <img src={a.dataUrl} alt={a.name} />
+      </a>
+    )
+  }
+  if (a.kind === 'video') {
+    return <video src={a.dataUrl} controls preload="metadata" />
+  }
+  return (
+    <a className="file-chip" href={a.dataUrl} download={a.name} title={a.name}>
+      📎 <span className="ellipsis">{a.name}</span>
+      <span className="dim">({formatBytes(a.size)})</span>
+    </a>
+  )
 }
 
 function toolLabel(name: string): string {

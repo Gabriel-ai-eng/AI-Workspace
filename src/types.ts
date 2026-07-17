@@ -38,9 +38,24 @@ export interface ToolCall {
   args: Record<string, unknown>
 }
 
+/** Anexo enviado pelo usuário no chat (imagem, vídeo ou arquivo genérico). */
+export interface Attachment {
+  id: string
+  kind: 'image' | 'video' | 'file'
+  name: string
+  mimeType: string
+  size: number
+  /**
+   * Data URL (base64) do arquivo — usada para exibir no chat e enviar ao
+   * provedor. Pode ficar vazia se os dados foram descartados para liberar
+   * espaço de armazenamento.
+   */
+  dataUrl: string
+}
+
 export type ChatMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: string; attachments?: Attachment[] }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | { role: 'tool'; toolCallId: string; name: string; content: string }
 
