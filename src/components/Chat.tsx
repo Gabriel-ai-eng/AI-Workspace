@@ -297,7 +297,7 @@ export default function Chat() {
             </button>
           ) : (
             <button
-              className="btn primary"
+              className="btn send"
               disabled={!ready || (!input.trim() && !attachments.length)}
               onClick={() => void send()}
             >
