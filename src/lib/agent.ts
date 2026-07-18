@@ -63,7 +63,10 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       'Envia um conjunto atômico de alterações (criar/editar/apagar arquivos) como um commit. ' +
       'Opcionalmente cria uma branch nova e abre um Pull Request. Dependendo do modo configurado ' +
       '(descrito no prompt do sistema), a alteração é aplicada imediatamente no GitHub ou fica ' +
-      'pendente até o usuário aprovar. Envie o conteúdo COMPLETO de cada arquivo.',
+      'pendente até o usuário aprovar. ' +
+      'Para arquivos que JÁ EXISTEM, use "edits" (edição cirúrgica) em vez de reescrever o arquivo ' +
+      'inteiro — é muito mais seguro e evita apagar partes do arquivo por engano. Leia o arquivo com ' +
+      'read_file primeiro para copiar o texto exato.',
     parameters: {
       type: 'object',
       properties: {
@@ -83,7 +86,39 @@ export const AGENT_TOOLS: ToolDefinition[] = [
             properties: {
               path: { type: 'string' },
               action: { type: 'string', enum: ['create', 'update', 'delete'] },
-              content: { type: 'string', description: 'Conteúdo completo (omitir para delete)' },
+              edits: {
+                type: 'array',
+                description:
+                  'PREFERIDO para action "update": lista de edições cirúrgicas aplicadas em ordem. ' +
+                  'Cada uma substitui old_string por new_string no arquivo atual (buscado automaticamente ' +
+                  'do GitHub). Não reescreve o resto do arquivo, então nada além do pedido é alterado.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    old_string: {
+                      type: 'string',
+                      description:
+                        'Texto exato a substituir — precisa casar caractere por caractere com o arquivo ' +
+                        'atual (indentação e quebras de linha incluídas). Inclua algumas linhas de ' +
+                        'contexto ao redor para garantir que o trecho seja único no arquivo.',
+                    },
+                    new_string: { type: 'string', description: 'Texto que substitui old_string.' },
+                    replace_all: {
+                      type: 'boolean',
+                      description:
+                        'Se true, substitui TODAS as ocorrências de old_string. Padrão false: exige que ' +
+                        'old_string apareça exatamente uma vez (erro caso contrário, para evitar edição ambígua).',
+                    },
+                  },
+                  required: ['old_string', 'new_string'],
+                },
+              },
+              content: {
+                type: 'string',
+                description:
+                  'Conteúdo completo do arquivo. Obrigatório para action "create". Para "update", use ' +
+                  'SOMENTE se o arquivo inteiro precisa ser reescrito (raro) — prefira sempre "edits".',
+              },
             },
             required: ['path', 'action'],
           },
@@ -158,8 +193,9 @@ export function buildSystemPrompt(repos: RepoRef[], autoApply: boolean, hasVerce
     '1. Antes de alterar qualquer coisa, explore o código com list_files, read_file e search_code para entender o contexto.',
     '2. Explique em linguagem clara o que pretende modificar e por quê, ANTES de chamar propose_changes.',
     autoApply
-      ? '3. O MODO AUTOMÁTICO está LIGADO: cada chamada de propose_changes é aplicada IMEDIATAMENTE no GitHub (commit direto na branch indicada, ex.: a principal), sem aprovação manual. Envie o conteúdo COMPLETO de cada arquivo alterado e revise com cuidado antes de chamar a ferramenta — o resultado (URL do commit) virá na resposta da ferramenta.'
-      : '3. Toda alteração deve ser enviada via propose_changes com o conteúdo COMPLETO de cada arquivo alterado. O usuário verá o diff e decidirá aprovar ou rejeitar — nunca presuma que foi aprovado.',
+      ? '3. O MODO AUTOMÁTICO está LIGADO: cada chamada de propose_changes é aplicada IMEDIATAMENTE no GitHub (commit direto na branch indicada, ex.: a principal), sem aprovação manual. Revise com cuidado antes de chamar a ferramenta — o resultado (URL do commit) virá na resposta da ferramenta.'
+      : '3. Toda alteração deve ser enviada via propose_changes. O usuário verá o diff e decidirá aprovar ou rejeitar — nunca presuma que foi aprovado.',
+    '3b. Para arquivos EXISTENTES, use SEMPRE "edits" (old_string → new_string) em vez de reescrever o arquivo inteiro em "content" — isso evita apagar partes do arquivo por acidente. Leia o arquivo com read_file antes, copie o trecho exato (indentação e quebras de linha inclusas) para old_string, e inclua contexto suficiente para o trecho ser único. Use "content" (arquivo inteiro) apenas para criar arquivos novos (action "create") ou nos raros casos em que o arquivo inteiro precisa mudar.',
     '4. Só proponha alterações em repositórios com permissão "write" ou "admin".',
     autoApply
       ? '5. Commite direto na branch principal, a menos que o usuário peça uma branch nova ou um PR.'
@@ -373,22 +409,40 @@ async function proposeChanges(
   const newBranch = args.new_branch ? String(args.new_branch) : ''
   const targetBranch = newBranch || baseBranch
 
-  // Busca o conteúdo atual de cada arquivo para o usuário ver o diff real.
+  // Busca o conteúdo atual de cada arquivo para o usuário ver o diff real e
+  // para aplicar as edições cirúrgicas (quando informadas) em cima dele.
   const files: FileChange[] = []
   for (const f of rawFiles) {
     const path = String(f.path ?? '')
     const action = (f.action === 'delete' ? 'delete' : f.action === 'create' ? 'create' : 'update') as FileChange['action']
     if (!path) continue
+
     let previousContent: string | undefined
     if (action !== 'create') {
       previousContent = (await ctx.github.readFile(repo.fullName, path, baseBranch)) ?? undefined
     }
-    files.push({
-      path,
-      action,
-      content: action === 'delete' ? undefined : String(f.content ?? ''),
-      previousContent,
-    })
+
+    let content: string | undefined
+    if (action === 'delete') {
+      content = undefined
+    } else if (Array.isArray(f.edits) && f.edits.length) {
+      if (previousContent === undefined) {
+        return `Arquivo "${path}" não encontrado em ${repo.fullName}@${baseBranch} — não é possível aplicar "edits". Use action "create" com "content" para criar um arquivo novo.`
+      }
+      const result = applyEdits(previousContent, f.edits as Record<string, unknown>[])
+      if ('error' in result) {
+        return `Falha ao editar "${path}": ${result.error} Nenhuma alteração foi enviada — corrija e chame propose_changes de novo.`
+      }
+      content = result.content
+    } else if (typeof f.content === 'string') {
+      content = f.content
+    } else if (action === 'create') {
+      return `Arquivo "${path}": informe "content" com o conteúdo completo para criá-lo (action "create").`
+    } else {
+      return `Arquivo "${path}": informe "edits" (preferível) ou "content" completo para atualizá-lo.`
+    }
+
+    files.push({ path, action, content, previousContent })
   }
 
   const proposal: ChangeProposal = {
@@ -442,6 +496,57 @@ async function proposeChanges(
     `branch ${targetBranch}${proposal.pr ? ', com abertura de PR' : ''}). ` +
     'O usuário verá o diff e decidirá. Não presuma que foi aprovada.'
   )
+}
+
+/**
+ * Aplica uma lista de edições old_string → new_string em sequência, cada uma
+ * exigindo casamento exato (mesma regra do buscar-e-substituir do editor: sem
+ * regex). Evita que o modelo precise reproduzir o arquivo inteiro para mudar
+ * um trecho pequeno — a causa mais comum de arquivos corrompidos.
+ */
+function applyEdits(
+  original: string,
+  edits: Record<string, unknown>[],
+): { content: string } | { error: string } {
+  let content = original
+  for (let i = 0; i < edits.length; i++) {
+    const e = edits[i]
+    const oldStr = String(e.old_string ?? '')
+    const newStr = String(e.new_string ?? '')
+    const replaceAll = e.replace_all === true
+    const n = i + 1
+    if (!oldStr) return { error: `edição ${n}: "old_string" está vazio.` }
+    if (oldStr === newStr) return { error: `edição ${n}: "old_string" e "new_string" são idênticos.` }
+    const count = countOccurrences(content, oldStr)
+    if (count === 0) {
+      return {
+        error: `edição ${n}: "old_string" não foi encontrado no arquivo. Confira espaços, indentação e quebras de linha exatos (use read_file para copiar o texto atual).`,
+      }
+    }
+    if (count > 1 && !replaceAll) {
+      return {
+        error: `edição ${n}: "old_string" aparece ${count} vezes no arquivo. Inclua mais linhas de contexto para torná-lo único, ou use replace_all=true se a intenção é mesmo substituir todas.`,
+      }
+    }
+    content = replaceAll ? content.split(oldStr).join(newStr) : replaceFirstOccurrence(content, oldStr, newStr)
+  }
+  return { content }
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0
+  let from = 0
+  while (true) {
+    const idx = haystack.indexOf(needle, from)
+    if (idx === -1) return count
+    count++
+    from = idx + needle.length
+  }
+}
+
+function replaceFirstOccurrence(haystack: string, needle: string, replacement: string): string {
+  const idx = haystack.indexOf(needle)
+  return idx === -1 ? haystack : haystack.slice(0, idx) + replacement + haystack.slice(idx + needle.length)
 }
 
 /** Aplica uma proposta aprovada: cria branch se preciso, commita e abre PR. */
