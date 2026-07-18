@@ -98,8 +98,13 @@ export interface ToolDefinition {
 export interface ModelInfo {
   id: string
   name?: string
-  /** true = grátis, false = pago, undefined = o provedor não informa o preço. */
-  free?: boolean
+  /**
+   * true = grátis, false = pago. Sempre definido: quando o provedor não
+   * informa preço no catálogo, assumimos pago (é o caso da esmagadora
+   * maioria dos provedores — só o OpenRouter expõe variantes ":free" em
+   * escala), para o filtro Grátis/Pagos funcionar em qualquer provedor.
+   */
+  free: boolean
 }
 
 /** Busca o catálogo de modelos do provedor (GET /models). */
@@ -128,20 +133,26 @@ export async function listModels(
   const data = (await res.json()) as {
     data: { id: string; name?: string; pricing?: Record<string, string | number> }[]
   }
-  return (data.data ?? []).map((m) => ({ id: m.id, name: m.name, free: modelIsFree(m.id, m.pricing) }))
+  return (data.data ?? []).map((m) => ({
+    id: m.id,
+    name: m.name,
+    free: modelIsFree(m.id, m.name, m.pricing),
+  }))
 }
 
 /**
- * Deduz se um modelo é gratuito a partir do catálogo do provedor: IDs ":free"
- * (OpenRouter) ou tabela de preços zerada. Sem informação de preço → undefined.
+ * Deduz se um modelo é gratuito: IDs/nomes ":free" ou "(free)" (OpenRouter e
+ * afins) ou tabela de preços zerada. Sem nenhum sinal, assume pago — é o
+ * comportamento real da maioria dos provedores (OpenAI, Grok, DeepSeek,
+ * Mistral, Hugging Face não têm tier de inferência grátis por modelo).
  */
-function modelIsFree(id: string, pricing?: Record<string, string | number>): boolean | undefined {
-  if (id.endsWith(':free')) return true
-  if (!pricing) return undefined
+function modelIsFree(id: string, name: string | undefined, pricing?: Record<string, string | number>): boolean {
+  if (/(:|\()\s*free\s*\)?$/i.test(id) || /(:|\()\s*free\s*\)?$/i.test(name ?? '')) return true
+  if (!pricing) return false
   const values = Object.values(pricing)
     .map(Number)
     .filter((n) => !Number.isNaN(n))
-  if (!values.length) return undefined
+  if (!values.length) return false
   return values.every((n) => n === 0)
 }
 
