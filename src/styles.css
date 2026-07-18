@@ -10,6 +10,8 @@
   --text-dim: #9aa4b2;
   --accent: #7c8aff;
   --accent-soft: rgba(124, 138, 255, 0.14);
+  --blue: #58a6ff;
+  --blue-soft: rgba(88, 166, 255, 0.14);
   --green: #3fb68b;
   --green-soft: rgba(63, 182, 139, 0.14);
   --red: #e5687a;
@@ -29,6 +31,8 @@
   --text-dim: #5b6675;
   --accent: #4f5fd8;
   --accent-soft: rgba(79, 95, 216, 0.1);
+  --blue: #1f6feb;
+  --blue-soft: rgba(31, 111, 235, 0.1);
   --green: #1d8f68;
   --green-soft: rgba(29, 143, 104, 0.1);
   --red: #c94357;
@@ -327,8 +331,8 @@ textarea:focus {
   color: #fff;
 }
 .btn.send {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--blue); /* changed back to blue */
+  border-color: var(--blue);
   color: #fff;
 }
 .btn.approve {
@@ -398,7 +402,7 @@ textarea:focus {
 }
 .msg.tool {
   align-self: flex-start;
-  font-size: 12px;
+  font-size: 12x;
   color: var(--text-dim);
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -427,123 +431,16 @@ textarea:focus {
 
 .chat-input {
   display: flex;
-  flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
   border-top: 1px solid var(--border);
   background: var(--bg-2);
-}
-.chat-input-row {
-  display: flex;
-  gap: 8px;
   align-items: flex-end;
 }
 .chat-input textarea {
   resize: none;
   max-height: 160px;
   min-height: 40px;
-}
-
-/* menu de anexos (imagens, vídeos, arquivos) */
-.attach {
-  position: relative;
-}
-.attach > .btn {
-  min-height: 40px;
-}
-.attach-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-}
-.attach-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  overflow: hidden;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-}
-.attach-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: none;
-  border: none;
-  padding: 10px 12px;
-  text-align: left;
-  cursor: pointer;
-  color: var(--text);
-}
-.attach-menu button:hover {
-  background: var(--accent-soft);
-}
-
-/* chips de anexos pendentes no campo de envio */
-.attach-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 230px;
-  padding: 4px 6px;
-  font-size: 12px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-.chip img {
-  width: 28px;
-  height: 28px;
-  object-fit: cover;
-  border-radius: 5px;
-}
-.chip .x {
-  background: none;
-  border: none;
-  padding: 0 2px;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-.chip .x:hover {
-  color: var(--red);
-}
-
-/* anexos dentro das mensagens */
-.msg-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.msg-attachments img,
-.msg-attachments video {
-  display: block;
-  max-width: min(260px, 100%);
-  max-height: 220px;
-  border-radius: 10px;
-}
-.file-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 260px;
-  padding: 6px 10px;
-  font-size: 12px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
 }
 
 .status-line {
@@ -595,7 +492,7 @@ textarea:focus {
   border-bottom-color: var(--accent);
 }
 .tabs button .count {
-  margin-left: 5px;
+  margin: 5px 0 0 5px;
 }
 
 .panel-body {
