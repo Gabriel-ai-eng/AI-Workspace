@@ -56,7 +56,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     name: 'OpenRouter',
     kind: 'openai',
     baseUrl: 'https://openrouter.ai/api/v1',
-    defaultModel: 'anthropic/claude-sonnet-4.5',
+    defaultModel: 'anthropic/claude-sonnet-5',
     keyHint: 'sk-or-...',
     docsUrl: 'https://openrouter.ai/',
   },

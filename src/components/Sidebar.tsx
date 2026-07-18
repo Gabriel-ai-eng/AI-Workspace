@@ -19,6 +19,21 @@ export default function Sidebar() {
   )
 }
 
+// Modelos fortes recomendados para tarefas de código, por provedor. São
+// pistas de busca (não IDs exatos) — tocar preenche o campo e filtra as
+// sugestões reais do catálogo carregado, então sempre resolve para um
+// modelo que existe de verdade.
+const CODE_MODEL_HINTS: Record<string, string[]> = {
+  anthropic: ['claude-sonnet-5', 'claude-opus-4-8'],
+  openai: ['gpt-5.1'],
+  gemini: ['gemini-2.5-pro'],
+  grok: ['grok-4'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  openrouter: ['claude-sonnet-5', 'gpt-5.1', 'deepseek', 'qwen3-coder'],
+  mistral: ['codestral', 'mistral-large'],
+  huggingface: ['Qwen2.5-Coder-32B', 'Llama-3.3-70B'],
+}
+
 // ------------------------------------------------------------ IA
 
 function AISection() {
@@ -38,6 +53,16 @@ function AISection() {
 
   const freeCount = useMemo(() => models.filter((m) => m.free === true).length, [models])
   const paidCount = useMemo(() => models.filter((m) => m.free === false).length, [models])
+
+  // Se o texto digitado casar com um modelo do catálogo, avisa quando ele é
+  // grátis — modelos grátis costumam cometer mais erros em tarefas de código.
+  const typedModelInfo = useMemo(() => {
+    const t = model.trim().toLowerCase()
+    if (!t) return null
+    return models.find((m) => m.id.toLowerCase() === t) ?? null
+  }, [model, models])
+
+  const codeHints = CODE_MODEL_HINTS[presetId] ?? []
 
   // Sugestões renderizadas pelo próprio app (datalist nativo não aparece em
   // vários navegadores mobile). Com o filtro Grátis/Pagos ativo, lista mesmo
@@ -162,6 +187,27 @@ function AISection() {
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
+            {codeHints.length > 0 && (
+              <div className="row small" style={{ flexWrap: 'wrap' }}>
+                <span className="dim">Fortes p/ código:</span>
+                {codeHints.map((hint) => (
+                  <button
+                    key={hint}
+                    type="button"
+                    className="btn small ghost"
+                    onClick={() => setModel(hint)}
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
+            )}
+            {typedModelInfo?.free === true && (
+              <div className="small" style={{ color: 'var(--red)' }}>
+                ⚠ Modelo grátis: costuma cometer mais erros em edições de código, especialmente com
+                o modo automático ligado. Para resultados mais confiáveis, prefira um modelo pago.
+              </div>
+            )}
             {freeCount + paidCount > 0 && (
               <div className="row small">
                 <button
