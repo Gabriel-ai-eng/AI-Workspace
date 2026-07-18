@@ -70,6 +70,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     docsUrl: 'https://console.mistral.ai/',
   },
   {
+    id: 'groq',
+    name: 'Groq',
+    kind: 'openai',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    keyHint: 'gsk_...',
+    docsUrl: 'https://console.groq.com/keys',
+  },
+  {
     id: 'huggingface',
     name: 'Hugging Face',
     kind: 'openai',

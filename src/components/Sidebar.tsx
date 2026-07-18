@@ -28,6 +28,7 @@ const CODE_MODEL_HINTS: Record<string, string[]> = {
   openai: ['gpt-5.1'],
   gemini: ['gemini-2.5-pro'],
   grok: ['grok-4'],
+  groq: ['moonshotai/kimi-k2', 'qwen/qwen3-32b', 'llama-3.3-70b-versatile', 'deepseek-r1-distill-llama-70b'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   openrouter: ['claude-sonnet-5', 'gpt-5.1', 'deepseek', 'qwen3-coder'],
   mistral: ['codestral', 'mistral-large'],
