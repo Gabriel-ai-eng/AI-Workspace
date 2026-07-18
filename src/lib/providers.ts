@@ -70,6 +70,15 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     docsUrl: 'https://console.mistral.ai/',
   },
   {
+    id: 'huggingface',
+    name: 'Hugging Face',
+    kind: 'openai',
+    baseUrl: 'https://router.huggingface.co/v1',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct',
+    keyHint: 'hf_...',
+    docsUrl: 'https://huggingface.co/settings/tokens',
+  },
+  {
     id: 'custom',
     name: 'API customizada (compatível com OpenAI)',
     kind: 'openai',
@@ -89,6 +98,8 @@ export interface ToolDefinition {
 export interface ModelInfo {
   id: string
   name?: string
+  /** true = grátis, false = pago, undefined = o provedor não informa o preço. */
+  free?: boolean
 }
 
 /** Busca o catálogo de modelos do provedor (GET /models). */
@@ -107,14 +118,31 @@ export async function listModels(
     })
     if (!res.ok) throw new Error(await apiError(res))
     const data = (await res.json()) as { data: { id: string; display_name?: string }[] }
-    return data.data.map((m) => ({ id: m.id, name: m.display_name }))
+    // A Anthropic não tem modelos gratuitos na API.
+    return data.data.map((m) => ({ id: m.id, name: m.display_name, free: false }))
   }
   const res = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   })
   if (!res.ok) throw new Error(await apiError(res))
-  const data = (await res.json()) as { data: { id: string; name?: string }[] }
-  return (data.data ?? []).map((m) => ({ id: m.id, name: m.name }))
+  const data = (await res.json()) as {
+    data: { id: string; name?: string; pricing?: Record<string, string | number> }[]
+  }
+  return (data.data ?? []).map((m) => ({ id: m.id, name: m.name, free: modelIsFree(m.id, m.pricing) }))
+}
+
+/**
+ * Deduz se um modelo é gratuito a partir do catálogo do provedor: IDs ":free"
+ * (OpenRouter) ou tabela de preços zerada. Sem informação de preço → undefined.
+ */
+function modelIsFree(id: string, pricing?: Record<string, string | number>): boolean | undefined {
+  if (id.endsWith(':free')) return true
+  if (!pricing) return undefined
+  const values = Object.values(pricing)
+    .map(Number)
+    .filter((n) => !Number.isNaN(n))
+  if (!values.length) return undefined
+  return values.every((n) => n === 0)
 }
 
 /**

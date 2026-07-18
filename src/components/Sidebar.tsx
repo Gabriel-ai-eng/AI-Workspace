@@ -32,24 +32,38 @@ function AISection() {
   const [error, setError] = useState('')
   const [models, setModels] = useState<ModelInfo[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all')
 
   const preset = PROVIDER_PRESETS.find((p) => p.id === presetId)!
 
+  const freeCount = useMemo(() => models.filter((m) => m.free === true).length, [models])
+  const paidCount = useMemo(() => models.filter((m) => m.free === false).length, [models])
+
   // Sugestões renderizadas pelo próprio app (datalist nativo não aparece em
-  // vários navegadores mobile). Some quando o texto já é um ID exato.
+  // vários navegadores mobile). Com o filtro Grátis/Pagos ativo, lista mesmo
+  // sem texto digitado, para dar visão de todos os modelos daquele tipo.
   const modelSuggestions = useMemo(() => {
+    if (!models.length) return []
     const t = model.trim().toLowerCase()
-    if (!t || !models.length) return []
-    if (models.some((m) => m.id.toLowerCase() === t)) return []
-    return models
-      .filter((m) => m.id.toLowerCase().includes(t) || (m.name ?? '').toLowerCase().includes(t))
-      .slice(0, 8)
-  }, [model, models])
+    let list = models
+    if (priceFilter === 'free') list = list.filter((m) => m.free === true)
+    else if (priceFilter === 'paid') list = list.filter((m) => m.free === false)
+    if (t) {
+      if (priceFilter === 'all' && models.some((m) => m.id.toLowerCase() === t)) return []
+      list = list.filter(
+        (m) => m.id.toLowerCase().includes(t) || (m.name ?? '').toLowerCase().includes(t),
+      )
+    } else if (priceFilter === 'all') {
+      return []
+    }
+    return list.slice(0, priceFilter === 'all' ? 8 : 100)
+  }, [model, models, priceFilter])
 
   // Com a chave colada, busca o catálogo de modelos do provedor para o usuário
   // escolher pelo nome — evita erros de "model ID inválido".
   useEffect(() => {
     setModels([])
+    setPriceFilter('all')
     const key = apiKey.trim()
     const base = presetId === 'custom' ? baseUrl.trim().replace(/\/$/, '') : preset.baseUrl
     if (!key || key.length < 8 || !base) return
@@ -148,6 +162,31 @@ function AISection() {
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
+            {freeCount + paidCount > 0 && (
+              <div className="row small">
+                <button
+                  type="button"
+                  className={`btn small ${priceFilter === 'all' ? 'primary' : ''}`}
+                  onClick={() => setPriceFilter('all')}
+                >
+                  Todos ({models.length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn small ${priceFilter === 'free' ? 'approve' : ''}`}
+                  onClick={() => setPriceFilter('free')}
+                >
+                  Grátis ({freeCount})
+                </button>
+                <button
+                  type="button"
+                  className={`btn small ${priceFilter === 'paid' ? 'primary' : ''}`}
+                  onClick={() => setPriceFilter('paid')}
+                >
+                  Pagos ({paidCount})
+                </button>
+              </div>
+            )}
             {modelSuggestions.length > 0 && (
               <div className="suggest-list">
                 {modelSuggestions.map((m) => (
@@ -157,7 +196,11 @@ function AISection() {
                     className="suggest-item"
                     onClick={() => setModel(m.id)}
                   >
-                    <span className="ellipsis">{m.name ?? m.id}</span>
+                    <span className="row">
+                      <span className="ellipsis grow">{m.name ?? m.id}</span>
+                      {m.free === true && <span className="badge green">grátis</span>}
+                      {m.free === false && <span className="badge dim">pago</span>}
+                    </span>
                     <span className="small dim mono ellipsis">{m.id}</span>
                   </button>
                 ))}
@@ -166,7 +209,8 @@ function AISection() {
             {loadingModels && <div className="small dim">Carregando modelos disponíveis…</div>}
             {!loadingModels && models.length > 0 && (
               <div className="small dim">
-                {models.length} modelos disponíveis — digite parte do nome e toque na sugestão.
+                {models.length} modelos disponíveis — digite parte do nome ou use os filtros
+                Grátis/Pagos e toque na sugestão.
               </div>
             )}
             {error && <div className="error">{error}</div>}
