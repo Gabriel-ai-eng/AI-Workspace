@@ -10,6 +10,8 @@ export interface VaultSecrets {
   vercelToken?: string
   /** connectionId -> API key */
   apiKeys: Record<string, string>
+  /** savedKeyId -> valor da chave salva (ver types.ts SavedKey) */
+  savedKeys?: Record<string, string>
 }
 
 interface VaultFile {

@@ -19,6 +19,7 @@ import type {
   Conversation,
   HistoryEntry,
   RepoRef,
+  SavedKey,
 } from '../types'
 import {
   clearSession,
@@ -47,6 +48,7 @@ interface PersistedState {
   activeConversationId: string | null
   proposals: ChangeProposal[]
   history: HistoryEntry[]
+  savedKeys: SavedKey[]
 }
 
 const DEFAULT_STATE: PersistedState = {
@@ -59,6 +61,7 @@ const DEFAULT_STATE: PersistedState = {
   activeConversationId: null,
   proposals: [],
   history: [],
+  savedKeys: [],
 }
 
 function loadState(): PersistedState {
@@ -129,6 +132,12 @@ export interface AppStore {
   updateProposal: (id: string, patch: Partial<ChangeProposal>) => void
   history: HistoryEntry[]
   addHistory: (h: HistoryEntry) => void
+
+  // chaves de API salvas para uso futuro (guardadas no cofre, sem conectar a nada)
+  savedKeys: SavedKey[]
+  addSavedKey: (label: string, value: string) => Promise<void>
+  removeSavedKey: (id: string) => Promise<void>
+  revealSavedKey: (id: string) => string | null
 }
 
 const AppContext = createContext<AppStore | null>(null)
@@ -427,6 +436,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     history: state.history,
     addHistory: (h) => setState((s) => ({ ...s, history: [h, ...s.history].slice(0, 200) })),
+
+    savedKeys: state.savedKeys,
+    addSavedKey: async (label, value) => {
+      if (!secrets) return
+      const key: SavedKey = { id: crypto.randomUUID(), label: label.trim() || 'Sem nome', createdAt: Date.now() }
+      await persistSecrets({
+        ...secrets,
+        savedKeys: { ...secrets.savedKeys, [key.id]: value },
+      })
+      setState((s) => ({ ...s, savedKeys: [key, ...s.savedKeys] }))
+    },
+    removeSavedKey: async (id) => {
+      if (secrets) {
+        const savedKeys = { ...secrets.savedKeys }
+        delete savedKeys[id]
+        await persistSecrets({ ...secrets, savedKeys })
+      }
+      setState((s) => ({ ...s, savedKeys: s.savedKeys.filter((k) => k.id !== id) }))
+    },
+    revealSavedKey: (id) => secrets?.savedKeys?.[id] ?? null,
   }
 
   return <AppContext.Provider value={store}>{children}</AppContext.Provider>

@@ -22,6 +22,18 @@ export interface AIConnection {
   model: string
 }
 
+/**
+ * Metadados de uma chave de API salva para uso futuro (o valor em si fica
+ * no cofre criptografado, indexado por `id`). Serve para guardar qualquer
+ * chave — de um serviço ainda não integrado ao app, por exemplo — sem
+ * precisar conectá-la a nada agora.
+ */
+export interface SavedKey {
+  id: string
+  label: string
+  createdAt: number
+}
+
 export type RepoPermission = 'read' | 'write' | 'admin'
 
 export interface RepoRef {

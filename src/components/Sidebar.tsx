@@ -12,6 +12,7 @@ export default function Sidebar() {
       <AISection />
       <GitHubSection />
       <VercelSection />
+      <SavedKeysSection />
       <ReposSection />
       <ExecutionSection />
       <ConversationsSection />
@@ -406,6 +407,137 @@ function VercelSection() {
           + Conectar Vercel (opcional)
         </button>
       )}
+    </div>
+  )
+}
+
+// -------------------------------------------------- chaves salvas
+
+/**
+ * Cofre de chaves avulsas: guarda qualquer API key para usar depois, sem
+ * precisar conectá-la a um provedor de IA ou serviço específico agora.
+ */
+function SavedKeysSection() {
+  const { savedKeys, addSavedKey, removeSavedKey, revealSavedKey } = useApp()
+  const [adding, setAdding] = useState(false)
+  const [label, setLabel] = useState('')
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  async function save() {
+    setError('')
+    if (!value.trim()) return setError('Cole a chave que deseja salvar.')
+    setBusy(true)
+    try {
+      await addSavedKey(label.trim(), value.trim())
+      setLabel('')
+      setValue('')
+      setAdding(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggleReveal(id: string) {
+    setRevealed((r) => {
+      if (r[id] !== undefined) {
+        const { [id]: _, ...rest } = r
+        return rest
+      }
+      return { ...r, [id]: revealSavedKey(id) ?? '' }
+    })
+  }
+
+  async function copy(id: string) {
+    const v = revealed[id] ?? revealSavedKey(id)
+    if (!v) return
+    try {
+      await navigator.clipboard.writeText(v)
+      setCopiedId(id)
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500)
+    } catch {
+      // Clipboard indisponível (ex.: contexto não seguro) — ignora silenciosamente.
+    }
+  }
+
+  return (
+    <div className="section">
+      <h3>Chaves salvas</h3>
+      <div className="stack">
+        {savedKeys.map((k) => {
+          const isRevealed = revealed[k.id] !== undefined
+          return (
+            <div key={k.id} className="card row">
+              <span className="grow ellipsis" title={k.label}>
+                {k.label}
+              </span>
+              {isRevealed && (
+                <span className="small dim mono ellipsis" style={{ maxWidth: 120 }}>
+                  {revealed[k.id]}
+                </span>
+              )}
+              <button
+                className="btn ghost icon small"
+                title={isRevealed ? 'Ocultar' : 'Mostrar'}
+                onClick={() => toggleReveal(k.id)}
+              >
+                {isRevealed ? '🙈' : '👁'}
+              </button>
+              <button
+                className="btn ghost icon small"
+                title="Copiar"
+                onClick={() => void copy(k.id)}
+              >
+                {copiedId === k.id ? '✓' : '📋'}
+              </button>
+              <button
+                className="del btn ghost icon small"
+                title="Remover chave"
+                onClick={() => void removeSavedKey(k.id)}
+              >
+                ✕
+              </button>
+            </div>
+          )
+        })}
+
+        {adding ? (
+          <div className="card stack">
+            <input
+              type="text"
+              placeholder="Nome (ex.: Stripe, SendGrid…)"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+            <PasswordInput
+              placeholder="Chave de API"
+              value={value}
+              onChange={setValue}
+              name="saved-api-key"
+            />
+            {error && <div className="error">{error}</div>}
+            <div className="row">
+              <button className="btn primary grow" disabled={busy} onClick={() => void save()}>
+                {busy ? 'Salvando…' : 'Salvar chave'}
+              </button>
+              <button className="btn ghost" onClick={() => setAdding(false)}>
+                Cancelar
+              </button>
+            </div>
+            <div className="small dim">
+              Guardada só para consulta futura — criptografada no mesmo cofre local, sem conectar a
+              nada automaticamente.
+            </div>
+          </div>
+        ) : (
+          <button className="btn ghost" onClick={() => setAdding(true)}>
+            + Salvar chave de API
+          </button>
+        )}
+      </div>
     </div>
   )
 }
